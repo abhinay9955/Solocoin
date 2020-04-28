@@ -17,9 +17,11 @@ import android.graphics.Color;
 import android.location.Location;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.location.Geofence;
@@ -45,7 +47,7 @@ import com.google.android.gms.tasks.Task;
 
 import java.util.ArrayList;
 
-public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, View.OnClickListener, GoogleMap.OnMapClickListener {
+public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMapClickListener {
 
     private GoogleMap mMap;
     private PendingIntent geofencePendingIntent;
@@ -54,16 +56,25 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     private Marker geoMarker,curMarker;
     private Circle circle;
     private ArrayList<Geofence> geofenceList;
-    private SharedPreferences sharedPreferences;
+    private SharedPreferences sharedPreferences,walletPreferences;
     private SharedPreferences.Editor editor;
     Double lat,lng ; // latitude and longitude of already present geofence
-    Boolean isGeofence; //check if there is already a geofence
+    Boolean isUpdateWallet,isGeofence; //check if there is already a geofence
+    private TextView walletAmount;
+    Handler handler;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+        getSupportActionBar().hide();
+
+
+        // Initializing
         sharedPreferences = getSharedPreferences("location",MODE_PRIVATE);
+        walletPreferences = getSharedPreferences("wallet",MODE_PRIVATE);
+        walletAmount = findViewById(R.id.amount);
         editor = sharedPreferences.edit();
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
@@ -71,34 +82,58 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         mapFragment.getMapAsync(this);
         start = findViewById(R.id.start);
         stop = findViewById(R.id.stop);
-        start.setOnClickListener(this);
-        stop.setOnClickListener(this);
         geofencingClient = LocationServices.getGeofencingClient(this);
         geofenceList = new ArrayList<>();
         isGeofence = sharedPreferences.getBoolean("geofence",false);
-        Toast.makeText(this,""+isGeofence,Toast.LENGTH_LONG).show();
-        if(isGeofence)
-        {
-            lat = Double.parseDouble(sharedPreferences.getString("lat","0.0"));
-            lng = Double.parseDouble(sharedPreferences.getString("lng","0.0"));
-            if(mMap!=null)
-            {
-                if(geoMarker!=null)
-                    geoMarker.remove();
-               geoMarker= mMap.addMarker(new MarkerOptions().position(new LatLng(lat,lng)).title("Geofence Marker"));
+        //
+        isUpdateWallet=true;
+        updateWallet();
+
+
+        start.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(geoMarker==null)
+                {
+                    Toast.makeText(MapsActivity.this, "Select a Geofence marker", Toast.LENGTH_SHORT).show();
+                }
+                else
+                {
+                    startGeofence();
+                }
             }
-        }
+        });
+
+        stop.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stopGeofence();
+            }
+        });
+
 
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateWallet();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        updateWallet();
+    }
 
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
         mMap.setMyLocationEnabled(true);
         mMap.setOnMapClickListener(this);
+
+        //if there is already a geofence
         isGeofence = sharedPreferences.getBoolean("geofence",false);
-        Toast.makeText(this,""+isGeofence,Toast.LENGTH_LONG).show();
         if(isGeofence)
         {
             lat = Double.parseDouble(sharedPreferences.getString("lat","0.0"));
@@ -109,7 +144,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                     geoMarker.remove();
                 geoMarker= mMap.addMarker(new MarkerOptions().position(new LatLng(lat,lng)).title("Geofence Marker"));
             }
-            CircleOptions circleOptions =new CircleOptions().center(new LatLng(lat,lng)).radius(100f).strokeColor(Color.parseColor("#543535")).fillColor(Color.parseColor("#a44dc6"));
+            CircleOptions circleOptions =new CircleOptions().center(new LatLng(lat,lng)).radius(100f).strokeColor(Color.parseColor("#d494ef")).fillColor(Color.parseColor("#dbafed"));
             if(circle!=null)
                 circle.remove();
             circle = mMap.addCircle(circleOptions);
@@ -123,7 +158,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         if(mMap!=null) {
 
             MarkerOptions markerOptions = new MarkerOptions().position(latLng).title("Geofence Marker");
-            CircleOptions circleOptions =new CircleOptions().center(latLng).radius(100f).strokeColor(Color.parseColor("#543535")).fillColor(Color.parseColor("#a44dc6"));
+            CircleOptions circleOptions =new CircleOptions().center(latLng).radius(100f).strokeColor(Color.parseColor("#d494ef")).fillColor(Color.parseColor("#dbafed"));
             if (geoMarker != null) {
                 geoMarker.remove();
             }
@@ -135,35 +170,35 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
-
-    @Override
-    public void onClick(View v) {
-
-        switch (v.getId()) {
-            case R.id.start:  if (geoMarker == null) {
-                               Toast.makeText(MapsActivity.this, "Select a Geofence marker", Toast.LENGTH_SHORT).show();
-                               break;
-                               }
-                              addGeofences();
-                              break;
-
-            case R.id.stop :  stopGeofence();
-                              break;
-        }
+    private  void updateWallet(){
+        handler = new Handler();
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                walletAmount.setText("Points : "+walletPreferences.getInt("amount",0));
+                updateWallet();
+            }
+        },1000);
     }
 
 
-
-    private void addGeofences(){
+    // final adding geofences
+    private void startGeofence(){
         geofencingClient.addGeofences(getGeofencingRequest(),getGeofencePendingIntent()).addOnSuccessListener(new OnSuccessListener<Void>() {
             @Override
             public void onSuccess(Void aVoid) {
                    Toast.makeText(MapsActivity.this,"Successfully added geofences",Toast.LENGTH_LONG).show();
+                   startService(new Intent(MapsActivity.this,WalletService.class));
+                   editor.putBoolean("geofence",true);
+                   editor.putString("lat",String.valueOf(geoMarker.getPosition().latitude));
+                   editor.putString("lng",String.valueOf(geoMarker.getPosition().longitude));
+                   editor.apply();
             }
         }).addOnFailureListener(new OnFailureListener() {
             @Override
             public void onFailure(@NonNull Exception e) {
                 Toast.makeText(MapsActivity.this,"Error in adding geofences",Toast.LENGTH_LONG).show();
+                mMap.clear();
             }
         });
     }
@@ -180,12 +215,23 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
 
 
+    private GeofencingRequest getGeofencingRequest() {
+        GeofencingRequest.Builder builder = new GeofencingRequest.Builder();
+        builder.setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER);
+        builder.addGeofence(getGeofence());
+        return builder.build();
+    }
+
 
     private void stopGeofence(){
         geofencingClient.removeGeofences(getGeofencePendingIntent()).addOnSuccessListener(new OnSuccessListener<Void>() {
             @Override
             public void onSuccess(Void aVoid) {
+                   mMap.clear();
                    Toast.makeText(MapsActivity.this,"Successfully removed",Toast.LENGTH_LONG).show();
+                   stopService(new Intent(MapsActivity.this,WalletService.class));
+                   editor.putBoolean("geofence",false);
+                   editor.apply();
             }
         }).addOnFailureListener(new OnFailureListener() {
             @Override
@@ -202,53 +248,16 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         return  new Geofence.Builder()
                 .setCircularRegion(geoMarker.getPosition().latitude,geoMarker.getPosition().longitude,100f)
                 .setRequestId("GeofenceID")
-                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER | Geofence.GEOFENCE_TRANSITION_EXIT |Geofence.GEOFENCE_TRANSITION_DWELL)
+                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER | Geofence.GEOFENCE_TRANSITION_EXIT)
                 .setLoiteringDelay(5000)
                 .setExpirationDuration(Geofence.NEVER_EXPIRE)
                 .build();
    }
 
-    private GeofencingRequest getGeofencingRequest() {
-        GeofencingRequest.Builder builder = new GeofencingRequest.Builder();
-        builder.setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER);
-        builder.addGeofence(getGeofence());
-        return builder.build();
-    }
-
     @Override
     protected void onPause() {
+        isUpdateWallet=false;
+
         super.onPause();
-
-
-
-
-        editor.apply();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        Log.i("stop", "onStop: ");
-    }
-
-    @Override
-    protected void onDestroy() {
-        Toast.makeText(this, "Destroyed", Toast.LENGTH_SHORT).show();
-        Log.i("dest", "onDestroy: ");
-        if(geoMarker!=null)
-        {
-            editor.putBoolean("geofence",true);
-            editor.putString("lat",String.valueOf(geoMarker.getPosition().latitude));
-            editor.putString("lng",String.valueOf(geoMarker.getPosition().longitude));
-        }
-        else
-        {
-            editor.putBoolean("geofence",false);
-            editor.putString("lat",String.valueOf(0.0));
-            editor.putString("lng",String.valueOf(0.0));
-
-        }
-        editor.apply();
-        super.onDestroy();
     }
 }
